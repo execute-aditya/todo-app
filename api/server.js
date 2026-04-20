@@ -123,19 +123,22 @@ app.delete('/api/todos/:id', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 7071;
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[START] Server listening on ${PORT}`);
-  console.log(`[INFO] Health check: GET /health`);
-  console.log(`[INFO] API ready to accept requests`);
-});
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('[SHUTDOWN] SIGTERM received');
-  server.close(() => {
-    console.log('[SHUTDOWN] Server closed');
-    process.exit(0);
+// Only start the server in development mode
+if (require.main === module && process.env.NODE_ENV !== 'production') {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[START] Development server listening on ${PORT}`);
+    console.log(`[INFO] Health check: GET http://localhost:${PORT}/health`);
   });
-});
+
+  // Graceful shutdown in development
+  process.on('SIGTERM', () => {
+    console.log('[SHUTDOWN] SIGTERM received');
+    server.close(() => {
+      console.log('[SHUTDOWN] Development server closed');
+      process.exit(0);
+    });
+  });
+}
 
 module.exports = app;
