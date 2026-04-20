@@ -1,22 +1,19 @@
 {
   "navigationFallback": {
-    "rewrite": "/index.html"
-  },
-  "mimeTypes": {
-    ".json": "application/json"
+    "rewrite": "/index.html",
+    "exclude": ["/api/*", "/*.{css,js,json,ico,png,jpg,svg,woff,woff2,ttf}"]
   },
   "routes": [
     {
       "route": "/api/*",
       "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/*",
-      "serve": "/index.html",
-      "statusCode": 200
     }
   ],
   "globalHeaders": {
-    "X-Content-Type-Options": "nosniff"
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-cache"
+  },
+  "mimeTypes": {
+    ".json": "application/json"
   }
 }
