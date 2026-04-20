@@ -1,6 +1,10 @@
 // Load .env only in development
 if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
+  try {
+    require('dotenv').config();
+  } catch (err) {
+    // dotenv not available or .env file missing in production - that's OK
+  }
 }
 
 const express = require('express');
@@ -11,39 +15,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Get credentials from environment - in Azure, these come from deployment
+// Cosmos DB credentials - load from environment
 const endpoint = process.env.COSMOS_ENDPOINT || '';
 const key = process.env.COSMOS_KEY || '';
 
-console.log('[DEBUG] Environment loaded - NODE_ENV:', process.env.NODE_ENV);
-console.log('[DEBUG] COSMOS_ENDPOINT available:', !!endpoint);
-console.log('[DEBUG] COSMOS_KEY available:', !!key);
-
-// Lazy-load Cosmos DB client
+// Lazy-load Cosmos DB client - don't initialize on startup
 let client = null;
 let container = null;
-let connectionError = null;
 
 function getContainer() {
   if (!client) {
     if (!endpoint || !key) {
-      const msg = 'COSMOS_ENDPOINT and COSMOS_KEY not configured';
-      connectionError = msg;
-      console.error('[ERROR]', msg);
-      throw new Error(msg);
+      throw new Error('COSMOS_ENDPOINT and COSMOS_KEY not configured');
     }
-    try {
-      console.log('[INFO] Initializing Cosmos DB client...');
-      client = new CosmosClient({ endpoint, key });
-      const database = client.database("tododb");
-      container = database.container("todos");
-      connectionError = null;
-      console.log('[INFO] Cosmos DB connection ready');
-    } catch (error) {
-      connectionError = error.message;
-      console.error('[ERROR] Cosmos DB init failed:', error.message);
-      throw error;
-    }
+    client = new CosmosClient({ endpoint, key });
+    const database = client.database("tododb");
+    container = database.container("todos");
   }
   return container;
 }
@@ -53,13 +40,9 @@ app.get('/', (req, res) => {
   res.json({ message: 'Todo API', version: '1.0.0' });
 });
 
-// Health check - always works
+// Health endpoint - doesn't require Cosmos DB
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy',
-    cosmosDbConfigured: !!endpoint && !!key,
-    cosmosDbError: connectionError
-  });
+  res.json({ status: 'healthy', message: 'API is running' });
 });
 
 // GET all todos
@@ -69,7 +52,6 @@ app.get('/api/todos', async (req, res) => {
     const { resources } = await container.items.query("SELECT * FROM c").fetchAll();
     res.json(resources);
   } catch (error) {
-    console.error('[ERROR] GET /api/todos:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -87,7 +69,6 @@ app.post('/api/todos', async (req, res) => {
     const { resource } = await container.items.create(todo);
     res.status(201).json(resource);
   } catch (error) {
-    console.error('[ERROR] POST /api/todos:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -105,7 +86,6 @@ app.put('/api/todos/:id', async (req, res) => {
     const { resource } = await container.item(req.params.id, req.params.id).replace(todo);
     res.json(resource);
   } catch (error) {
-    console.error('[ERROR] PUT /api/todos/:id:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -115,29 +95,17 @@ app.delete('/api/todos/:id', async (req, res) => {
   try {
     const container = getContainer();
     await container.item(req.params.id, req.params.id).delete();
-    res.json({ success: true, id: req.params.id });
+    res.json({ success: true });
   } catch (error) {
-    console.error('[ERROR] DELETE /api/todos/:id:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-const PORT = process.env.PORT || 7071;
-
-// Only start the server in development mode
+// Start server only in development mode (when run directly)
 if (require.main === module && process.env.NODE_ENV !== 'production') {
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[START] Development server listening on ${PORT}`);
-    console.log(`[INFO] Health check: GET http://localhost:${PORT}/health`);
-  });
-
-  // Graceful shutdown in development
-  process.on('SIGTERM', () => {
-    console.log('[SHUTDOWN] SIGTERM received');
-    server.close(() => {
-      console.log('[SHUTDOWN] Development server closed');
-      process.exit(0);
-    });
+  const PORT = process.env.PORT || 7071;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on port ${PORT}`);
   });
 }
 
