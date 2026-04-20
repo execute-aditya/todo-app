@@ -7,8 +7,8 @@ const standardTheme = document.querySelector(".standard-theme");
 const lightTheme = document.querySelector(".light-theme");
 const darkerTheme = document.querySelector(".darker-theme");
 
-// API Base URL
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:7071' : '';
+// API Base URL — in production Azure SWA routes /api/* to the Azure Function
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:7071/api' : '/api';
 
 // Event Listeners
 
@@ -45,17 +45,19 @@ async function saveToAzure(todoObj) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(todoObj)
     });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const newTodo = await response.json();
     renderToDo(newTodo);
   } catch (error) {
     console.error('Error saving todo:', error);
-    alert('Failed to save todo');
+    alert('Failed to save todo. Please try again.');
   }
 }
 
 async function getTodos() {
   try {
     const response = await fetch(`${API_BASE}/todos`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const todos = await response.json();
     todos.forEach((todo) => {
       renderToDo(todo);
@@ -119,12 +121,13 @@ function deletecheck(event) {
 
 async function removeFromAzure(todoId) {
   try {
-    await fetch(`${API_BASE}/todos/${todoId}`, {
+    const response = await fetch(`${API_BASE}/todos/${todoId}`, {
       method: 'DELETE'
     });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
   } catch (error) {
     console.error('Error deleting todo:', error);
-    alert('Failed to delete todo');
+    alert('Failed to delete todo. Please try again.');
   }
 }
 function changeTheme(color) {

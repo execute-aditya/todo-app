@@ -1,63 +1,87 @@
-// Azure Functions HTTP Trigger - bridges Azure Functions runtime to Express app
+// Azure Functions HTTP Trigger — native handler (no Express bridge needed)
+// Routes: GET/POST /api/todos, PUT/DELETE /api/todos/:id
 
-const app = require('../server');
+'use strict';
 
-/**
- * Azure Functions v3 handler.
- * Converts the Azure Functions context/req into a standard Node.js
- * IncomingMessage / ServerResponse pair so Express can handle it.
- */
+if (process.env.NODE_ENV !== 'production') {
+  try { require('dotenv').config({ path: require('path').join(__dirname, '../.env') }); } catch (_) {}
+}
+
+const { CosmosClient } = require('@azure/cosmos');
+
+let container = null;
+
+function getContainer() {
+  if (container) return container;
+  const endpoint = process.env.COSMOS_ENDPOINT;
+  const key = process.env.COSMOS_KEY;
+  if (!endpoint || !key) throw new Error('COSMOS_ENDPOINT and COSMOS_KEY must be set');
+  const client = new CosmosClient({ endpoint, key });
+  container = client.database('tododb').container('todos');
+  return container;
+}
+
+function json(context, status, body) {
+  context.res = {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
 module.exports = async function (context, req) {
-  // Return a promise so Azure waits for Express to finish
-  await new Promise((resolve, reject) => {
-    // Attach the Azure context so server.js can reference it if needed
-    req.context = context;
+  // Azure SWA routes /api/* to this function.
+  // req.params.route is the path AFTER /api/, e.g. "todos" or "todos/123"
+  const route = (req.params.route || '').replace(/^\/+/, '');
+  const method = req.method.toUpperCase();
 
-    // Fake a minimal ServerResponse-compatible object
-    const res = context.res || {};
+  // Extract ID if present: "todos/abc-123" → id = "abc-123"
+  const todosMatch = route.match(/^todos(?:\/([^/]+))?$/);
+  if (!todosMatch) {
+    return json(context, 404, { error: 'Not found' });
+  }
+  const id = todosMatch[1] || null;
 
-    // Intercept Express's res.json / res.send via a custom response shim
-    const { Writable } = require('stream');
+  try {
+    const c = getContainer();
 
-    let statusCode = 200;
-    const headers = {};
-    let body = '';
+    // GET /api/todos
+    if (method === 'GET' && !id) {
+      const { resources } = await c.items.query('SELECT * FROM c ORDER BY c._ts DESC').fetchAll();
+      return json(context, 200, resources);
+    }
 
-    // Create a writable stream that collects the response body
-    const writable = new Writable({
-      write(chunk, _encoding, callback) {
-        body += chunk.toString();
-        callback();
-      },
-    });
-
-    // Monkey-patch enough of the Node http.ServerResponse API for Express
-    writable.statusCode = statusCode;
-    writable.statusMessage = 'OK';
-    writable.setHeader = (name, value) => { headers[name] = value; };
-    writable.getHeader = (name) => headers[name];
-    writable.removeHeader = (name) => { delete headers[name]; };
-    writable.writeHead = (code, _msg, hdrs) => {
-      writable.statusCode = code;
-      if (hdrs) Object.assign(headers, hdrs);
-    };
-    writable.end = (chunk, encoding, cb) => {
-      if (chunk) body += chunk.toString();
-      context.res = {
-        status: writable.statusCode,
-        headers,
-        body,
+    // POST /api/todos
+    if (method === 'POST' && !id) {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const todo = {
+        id: Date.now().toString(),
+        text: body.text,
+        completed: body.completed || false,
+        createdAt: new Date().toISOString(),
       };
-      resolve();
-      if (typeof cb === 'function') cb();
-    };
+      const { resource } = await c.items.create(todo);
+      return json(context, 201, resource);
+    }
 
-    // Let Express handle the request
-    app(req, writable, (err) => {
-      if (err) {
-        context.res = { status: 500, body: JSON.stringify({ error: err.message }) };
-        reject(err);
-      }
-    });
-  });
+    // PUT /api/todos/:id
+    if (method === 'PUT' && id) {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const todo = { id, text: body.text, completed: body.completed, createdAt: body.createdAt };
+      const { resource } = await c.item(id, id).replace(todo);
+      return json(context, 200, resource);
+    }
+
+    // DELETE /api/todos/:id
+    if (method === 'DELETE' && id) {
+      await c.item(id, id).delete();
+      return json(context, 200, { success: true });
+    }
+
+    return json(context, 405, { error: 'Method not allowed' });
+
+  } catch (error) {
+    context.log.error('API error:', error.message);
+    return json(context, 500, { error: error.message });
+  }
 };
