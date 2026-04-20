@@ -1,4 +1,7 @@
-require('dotenv').config();
+// Load .env only in development
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 const express = require('express');
 const cors = require('cors');
@@ -8,14 +11,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const endpoint = process.env.COSMOS_ENDPOINT;
-const key = process.env.COSMOS_KEY;
+// Get credentials from environment - in Azure, these come from deployment
+const endpoint = process.env.COSMOS_ENDPOINT || '';
+const key = process.env.COSMOS_KEY || '';
 
-console.log('[API] Starting server...');
-console.log('[API] COSMOS_ENDPOINT:', endpoint ? 'configured' : 'NOT SET');
-console.log('[API] COSMOS_KEY:', key ? 'configured' : 'NOT SET');
+console.log('[DEBUG] Environment loaded - NODE_ENV:', process.env.NODE_ENV);
+console.log('[DEBUG] COSMOS_ENDPOINT available:', !!endpoint);
+console.log('[DEBUG] COSMOS_KEY available:', !!key);
 
-// Lazy-load Cosmos DB client to avoid blocking startup
+// Lazy-load Cosmos DB client
 let client = null;
 let container = null;
 let connectionError = null;
@@ -23,31 +27,37 @@ let connectionError = null;
 function getContainer() {
   if (!client) {
     if (!endpoint || !key) {
-      const msg = 'COSMOS_ENDPOINT and COSMOS_KEY environment variables are required';
+      const msg = 'COSMOS_ENDPOINT and COSMOS_KEY not configured';
       connectionError = msg;
+      console.error('[ERROR]', msg);
       throw new Error(msg);
     }
     try {
+      console.log('[INFO] Initializing Cosmos DB client...');
       client = new CosmosClient({ endpoint, key });
       const database = client.database("tododb");
       container = database.container("todos");
       connectionError = null;
-      console.log('[API] Cosmos DB connection initialized');
+      console.log('[INFO] Cosmos DB connection ready');
     } catch (error) {
       connectionError = error.message;
-      console.error('[API] Failed to initialize Cosmos DB:', error.message);
+      console.error('[ERROR] Cosmos DB init failed:', error.message);
       throw error;
     }
   }
   return container;
 }
 
-// Health check endpoint - always works
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ message: 'Todo API', version: '1.0.0' });
+});
+
+// Health check - always works
 app.get('/health', (req, res) => {
-  console.log('[API] Health check requested');
   res.status(200).json({ 
-    status: 'ok',
-    cosmosDbConnected: connectionError === null,
+    status: 'healthy',
+    cosmosDbConfigured: !!endpoint && !!key,
     cosmosDbError: connectionError
   });
 });
@@ -55,12 +65,11 @@ app.get('/health', (req, res) => {
 // GET all todos
 app.get('/api/todos', async (req, res) => {
   try {
-    console.log('[API] GET /api/todos');
     const container = getContainer();
     const { resources } = await container.items.query("SELECT * FROM c").fetchAll();
     res.json(resources);
   } catch (error) {
-    console.error('[API] Error fetching todos:', error.message);
+    console.error('[ERROR] GET /api/todos:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -68,7 +77,6 @@ app.get('/api/todos', async (req, res) => {
 // POST new todo
 app.post('/api/todos', async (req, res) => {
   try {
-    console.log('[API] POST /api/todos');
     const container = getContainer();
     const todo = {
       id: Date.now().toString(),
@@ -76,11 +84,28 @@ app.post('/api/todos', async (req, res) => {
       completed: req.body.completed || false,
       createdAt: new Date()
     };
-    
     const { resource } = await container.items.create(todo);
     res.status(201).json(resource);
   } catch (error) {
-    console.error('[API] Error creating todo:', error.message);
+    console.error('[ERROR] POST /api/todos:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// UPDATE todo
+app.put('/api/todos/:id', async (req, res) => {
+  try {
+    const container = getContainer();
+    const todo = {
+      id: req.params.id,
+      text: req.body.text,
+      completed: req.body.completed || false,
+      createdAt: req.body.createdAt
+    };
+    const { resource } = await container.item(req.params.id, req.params.id).replace(todo);
+    res.json(resource);
+  } catch (error) {
+    console.error('[ERROR] PUT /api/todos/:id:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -88,27 +113,29 @@ app.post('/api/todos', async (req, res) => {
 // DELETE todo
 app.delete('/api/todos/:id', async (req, res) => {
   try {
-    console.log('[API] DELETE /api/todos/:id');
     const container = getContainer();
     await container.item(req.params.id, req.params.id).delete();
-    res.json({ success: true });
+    res.json({ success: true, id: req.params.id });
   } catch (error) {
-    console.error('[API] Delete error:', error.message);
+    console.error('[ERROR] DELETE /api/todos/:id:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 const PORT = process.env.PORT || 7071;
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[API] Server listening on port ${PORT}`);
-  console.log(`[API] Health check available at http://localhost:${PORT}/health`);
+  console.log(`[START] Server listening on ${PORT}`);
+  console.log(`[INFO] Health check: GET /health`);
+  console.log(`[INFO] API ready to accept requests`);
 });
 
-// Handle shutdown gracefully
+// Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('[API] SIGTERM received, shutting down gracefully');
+  console.log('[SHUTDOWN] SIGTERM received');
   server.close(() => {
-    console.log('[API] Server closed');
+    console.log('[SHUTDOWN] Server closed');
     process.exit(0);
   });
 });
+
+module.exports = app;

@@ -41,3 +41,7 @@ jobs:
           output_location: ""
           skip_app_build: true
           api_build_command: "npm ci --omit=dev"
+        env:
+          COSMOS_ENDPOINT: ${{ secrets.COSMOS_ENDPOINT }}
+          COSMOS_KEY: ${{ secrets.COSMOS_KEY }}
+          NODE_ENV: production
