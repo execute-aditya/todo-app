@@ -3,8 +3,12 @@
 .vscode
 .env*
 node_modules
-api/node_modules
+node_modules/**
+api
+api/**
 AUTHORS
 *.md
 package-lock.json
+package.json
 .gitignore
+.deployignore

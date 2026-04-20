@@ -1,7 +1,7 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/*.{css,js,json,ico,png,jpg,svg,woff,woff2,ttf}"]
+    "exclude": ["/api/*"]
   },
   "routes": [
     {
@@ -10,8 +10,7 @@
     }
   ],
   "globalHeaders": {
-    "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "no-cache"
+    "X-Content-Type-Options": "nosniff"
   },
   "mimeTypes": {
     ".json": "application/json"
