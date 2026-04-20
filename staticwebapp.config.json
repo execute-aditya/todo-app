@@ -5,14 +5,18 @@
   "mimeTypes": {
     ".json": "application/json"
   },
-  "buildExcludes": [
-    ".git",
-    ".vscode",
-    "node_modules",
-    ".env*",
-    "*.md",
-    ".github",
-    "AUTHORS",
-    "package-lock.json"
-  ]
+  "routes": [
+    {
+      "route": "/api/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/*",
+      "serve": "/index.html",
+      "statusCode": 200
+    }
+  ],
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff"
+  }
 }
