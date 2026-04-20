@@ -57,13 +57,16 @@ async function saveToAzure(todoObj) {
 async function getTodos() {
   try {
     const response = await fetch(`${API_BASE}/todos`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text.substring(0, 200)}`);
+    }
     const todos = await response.json();
     todos.forEach((todo) => {
       renderToDo(todo);
     });
   } catch (error) {
-    console.error('Error fetching todos:', error);
+    console.error('Error fetching todos:', error.message);
   }
 }
 function renderToDo(todo) {

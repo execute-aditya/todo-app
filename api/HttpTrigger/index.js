@@ -1,5 +1,5 @@
-// Azure Functions HTTP Trigger — native handler (no Express bridge needed)
-// Routes: GET/POST /api/todos, PUT/DELETE /api/todos/:id
+// Azure Functions HTTP Trigger — native handler for Azure Static Web Apps
+// Handles: GET /api/todos, POST /api/todos, PUT /api/todos/:id, DELETE /api/todos/:id
 
 'use strict';
 
@@ -15,73 +15,97 @@ function getContainer() {
   if (container) return container;
   const endpoint = process.env.COSMOS_ENDPOINT;
   const key = process.env.COSMOS_KEY;
-  if (!endpoint || !key) throw new Error('COSMOS_ENDPOINT and COSMOS_KEY must be set');
+  if (!endpoint || !key) throw new Error('COSMOS_ENDPOINT and COSMOS_KEY environment variables are not set');
   const client = new CosmosClient({ endpoint, key });
   container = client.database('tododb').container('todos');
   return container;
 }
 
-function json(context, status, body) {
+function respond(context, status, body) {
   context.res = {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     body: JSON.stringify(body),
   };
 }
 
 module.exports = async function (context, req) {
-  // Azure SWA routes /api/* to this function.
-  // req.params.route is the path AFTER /api/, e.g. "todos" or "todos/123"
-  const route = (req.params.route || '').replace(/^\/+/, '');
-  const method = req.method.toUpperCase();
-
-  // Extract ID if present: "todos/abc-123" → id = "abc-123"
-  const todosMatch = route.match(/^todos(?:\/([^/]+))?$/);
-  if (!todosMatch) {
-    return json(context, 404, { error: 'Not found' });
-  }
-  const id = todosMatch[1] || null;
+  context.log(`[TodoAPI] ${req.method} ${req.url}`);
 
   try {
-    const c = getContainer();
-
-    // GET /api/todos
-    if (method === 'GET' && !id) {
-      const { resources } = await c.items.query('SELECT * FROM c ORDER BY c._ts DESC').fetchAll();
-      return json(context, 200, resources);
+    // Parse path robustly from req.url — more reliable than req.params in SWA context
+    // req.url may be a full URL (https://...) or a relative path (/api/todos)
+    let pathname;
+    try {
+      pathname = new URL(req.url).pathname;
+    } catch (_) {
+      pathname = req.url.split('?')[0]; // fallback for relative URLs
     }
 
-    // POST /api/todos
-    if (method === 'POST' && !id) {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      const todo = {
-        id: Date.now().toString(),
-        text: body.text,
-        completed: body.completed || false,
-        createdAt: new Date().toISOString(),
-      };
-      const { resource } = await c.items.create(todo);
-      return json(context, 201, resource);
+    // Strip /api/ prefix to get the resource path: "todos" or "todos/abc123"
+    // Handles both "/api/todos" and "api/todos"
+    const resource = pathname.replace(/^\/?api\//, '').replace(/^\/+|\/+$/g, '');
+    const method = req.method.toUpperCase();
+
+    context.log(`[TodoAPI] resource="${resource}" method="${method}"`);
+
+    // Route: /api/todos
+    if (resource === 'todos') {
+      const c = getContainer();
+
+      if (method === 'GET') {
+        const { resources } = await c.items
+          .query('SELECT * FROM c ORDER BY c._ts DESC')
+          .fetchAll();
+        return respond(context, 200, resources);
+      }
+
+      if (method === 'POST') {
+        const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+        if (!body.text) return respond(context, 400, { error: 'text is required' });
+        const todo = {
+          id: `todo-${Date.now()}`,
+          text: body.text,
+          completed: body.completed || false,
+          createdAt: new Date().toISOString(),
+        };
+        const { resource: created } = await c.items.create(todo);
+        return respond(context, 201, created);
+      }
+
+      return respond(context, 405, { error: `Method ${method} not allowed on /api/todos` });
     }
 
-    // PUT /api/todos/:id
-    if (method === 'PUT' && id) {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      const todo = { id, text: body.text, completed: body.completed, createdAt: body.createdAt };
-      const { resource } = await c.item(id, id).replace(todo);
-      return json(context, 200, resource);
+    // Route: /api/todos/:id
+    const idMatch = resource.match(/^todos\/([^/]+)$/);
+    if (idMatch) {
+      const id = idMatch[1];
+      const c = getContainer();
+
+      if (method === 'PUT') {
+        const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+        const todo = { id, text: body.text, completed: !!body.completed, createdAt: body.createdAt };
+        const { resource: updated } = await c.item(id, id).replace(todo);
+        return respond(context, 200, updated);
+      }
+
+      if (method === 'DELETE') {
+        await c.item(id, id).delete();
+        return respond(context, 200, { success: true, id });
+      }
+
+      return respond(context, 405, { error: `Method ${method} not allowed on /api/todos/:id` });
     }
 
-    // DELETE /api/todos/:id
-    if (method === 'DELETE' && id) {
-      await c.item(id, id).delete();
-      return json(context, 200, { success: true });
+    // Health check: GET /api/health
+    if (resource === 'health') {
+      return respond(context, 200, { status: 'ok', timestamp: new Date().toISOString() });
     }
 
-    return json(context, 405, { error: 'Method not allowed' });
+    return respond(context, 404, { error: `Unknown route: ${resource}` });
 
-  } catch (error) {
-    context.log.error('API error:', error.message);
-    return json(context, 500, { error: error.message });
+  } catch (err) {
+    context.log.error('[TodoAPI] Error:', err.message, err.stack);
+    return respond(context, 500, { error: err.message });
   }
 };
