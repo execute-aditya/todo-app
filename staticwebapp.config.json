@@ -4,5 +4,15 @@
   },
   "mimeTypes": {
     ".json": "application/json"
-  }
+  },
+  "buildExcludes": [
+    ".git",
+    ".vscode",
+    "node_modules",
+    ".env*",
+    "*.md",
+    ".github",
+    "AUTHORS",
+    "package-lock.json"
+  ]
 }

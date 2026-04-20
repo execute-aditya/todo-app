@@ -1,0 +1,10 @@
+.git
+.github
+.vscode
+.env*
+node_modules
+api/node_modules
+AUTHORS
+*.md
+package-lock.json
+.gitignore
