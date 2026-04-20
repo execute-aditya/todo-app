@@ -101,6 +101,12 @@ app.delete('/api/todos/:id', async (req, res) => {
   }
 });
 
+// Global error handlers
+app.use((err, req, res, next) => {
+  console.error('Express error:', err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
 // Start server only in development mode (when run directly)
 if (require.main === module && process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 7071;
