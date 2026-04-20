@@ -1,0 +1,19 @@
+{
+  "name": "todo-app",
+  "version": "1.0.0",
+  "description": "Todo App with Azure Backend",
+  "main": "index.html",
+  "scripts": {
+    "start": "node api/server.js",
+    "install-api": "cd api && npm install && cd ..",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:api\"",
+    "dev:frontend": "python3 -m http.server 5500",
+    "dev:api": "cd api && npm install && npm start"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^7.0.0"
+  }
+}

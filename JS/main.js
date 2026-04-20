@@ -7,6 +7,9 @@ const standardTheme = document.querySelector(".standard-theme");
 const lightTheme = document.querySelector(".light-theme");
 const darkerTheme = document.querySelector(".darker-theme");
 
+// API Base URL
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:7071' : '';
+
 // Event Listeners
 
 toDoBtn.addEventListener("click", addToDo);
@@ -31,34 +34,40 @@ function addToDo(event) {
     return;
   }
   const todoObject = { text: todoText, completed: false };
-  savelocal(todoObject);
-  renderToDo(todoObject);
+  saveToAzure(todoObject);
   toDoInput.value = "";
 }
-function savelocal(todoObj) {
-  let todos;
-  if (localStorage.getItem("todos") === null) {
-    todos = [];
-  } else {
-    todos = JSON.parse(localStorage.getItem("todos"));
+
+async function saveToAzure(todoObj) {
+  try {
+    const response = await fetch(`${API_BASE}/todos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(todoObj)
+    });
+    const newTodo = await response.json();
+    renderToDo(newTodo);
+  } catch (error) {
+    console.error('Error saving todo:', error);
+    alert('Failed to save todo');
   }
-  todos.push(todoObj);
-  localStorage.setItem("todos", JSON.stringify(todos));
 }
-function getTodos() {
-  let todos;
-  if (localStorage.getItem("todos") === null) {
-    todos = [];
-  } else {
-    todos = JSON.parse(localStorage.getItem("todos"));
+
+async function getTodos() {
+  try {
+    const response = await fetch(`${API_BASE}/todos`);
+    const todos = await response.json();
+    todos.forEach((todo) => {
+      renderToDo(todo);
+    });
+  } catch (error) {
+    console.error('Error fetching todos:', error);
   }
-  todos.forEach((todo) => {
-    renderToDo(todo);
-  });
 }
 function renderToDo(todo) {
   const toDoDiv = document.createElement("div");
   toDoDiv.classList.add("todo", `${savedTheme}-todo`);
+  toDoDiv.dataset.id = todo.id;
   const newToDo = document.createElement("li");
   newToDo.innerText = todo.text;
   newToDo.classList.add("todo-item");
@@ -94,31 +103,29 @@ function updateLocalTodos(todoItem) {
 function deletecheck(event) {
   const item = event.target;
   if (item.classList[0] === "delete-btn") {
-    item.parentElement.classList.add("fall");
-    removeLocalTodos(item.parentElement);
-    item.parentElement.addEventListener("transitionend", function () {
-      item.parentElement.remove();
+    const todoItem = item.parentElement;
+    const todoId = todoItem.dataset.id;
+    todoItem.classList.add("fall");
+    removeFromAzure(todoId);
+    todoItem.addEventListener("transitionend", function () {
+      todoItem.remove();
     });
   }
   if (item.classList[0] === "check-btn") {
     const todoItem = item.parentElement;
     todoItem.classList.toggle("completed");
-    // Find the corresponding todo item in local storage and update its completion status
-    updateLocalTodos(todoItem);
   }
 }
-function removeLocalTodos(todo) {
-  let todos;
-  if (localStorage.getItem("todos") === null) {
-    todos = [];
-  } else {
-    todos = JSON.parse(localStorage.getItem("todos"));
+
+async function removeFromAzure(todoId) {
+  try {
+    await fetch(`${API_BASE}/todos/${todoId}`, {
+      method: 'DELETE'
+    });
+  } catch (error) {
+    console.error('Error deleting todo:', error);
+    alert('Failed to delete todo');
   }
-  const todoIndex = todos.findIndex(
-    (item) => item.text === todo.children[0].innerText
-  );
-  todos.splice(todoIndex, 1);
-  localStorage.setItem("todos", JSON.stringify(todos));
 }
 function changeTheme(color) {
   localStorage.setItem("savedTheme", color);
